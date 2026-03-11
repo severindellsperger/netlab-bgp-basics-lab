@@ -1,0 +1,129 @@
+# NetLab BGP Basics Lab
+# =====================
+# Demonstrates the following BGP concepts:
+#
+#   eBGP         – External BGP sessions between different autonomous systems.
+#   iBGP         – Internal BGP within AS65001 (r1 ↔ r2), using loopbacks
+#                  reachable via OSPF.
+#   next-hop-self – r1 sets next-hop-self on its iBGP sessions so that r2
+#                  can resolve the next-hop for routes learned by r1 from r3.
+#                  Without it, r2 receives routes with next-hop = r3's IP,
+#                  which r2 cannot reach (no direct link to r3).
+#   AS_PATH      – r1/r2 have two paths to AS65003:
+#                    - via r2 (direct):    AS_PATH [65003]        length 1
+#                    - via r1 → r3 → r4:  AS_PATH [65002, 65003] length 2
+#                  Shorter AS_PATH is preferred by default.
+#   Local Pref   – Setting LOCAL_PREF > 100 on r1 for routes from r3 overrides
+#                  AS_PATH selection: the longer path via AS65002 becomes
+#                  preferred because LOCAL_PREF is checked before AS_PATH.
+#   Loop prevent – Routes originating in AS65001 that travel via AS65002 and
+#                  AS65003 back to AS65001 are rejected because AS65001 already
+#                  appears in the AS_PATH.
+#
+# Autonomous Systems:
+#   AS65001 – r1, r2  (iBGP full-mesh; OSPF for IGP reachability)
+#   AS65002 – r3      (transit AS, single router)
+#   AS65003 – r4      (destination AS, single router)
+#
+# Device:   FRRouting (FRR)
+# Provider: Containerlab (clab)
+
+defaults:
+  device: frr
+  provider: clab
+
+module: [ bgp ]
+
+nodes:
+
+  # ── AS65001 ──────────────────────────────────────────────────────────────────
+  # r1 and r2 share AS65001 and form an iBGP session.
+  # OSPF is added to both r1 and r2 so their loopbacks are mutually reachable,
+  # enabling loopback-based iBGP sessions (the standard architecture).
+  #
+  # r1.next_hop_self = true:
+  #   When r1 sends iBGP updates to r2 for routes learned via r3 (eBGP),
+  #   iBGP by default preserves the original next-hop (r3's IP on the r1-r3
+  #   link).  r2 has no route to that IP (no direct link to r3, and OSPF does
+  #   not redistribute the r1-r3 inter-AS subnet).  With next_hop_self, r1
+  #   replaces the next-hop with its own loopback IP, which r2 CAN reach via
+  #   OSPF.
+  r1:
+    module: [ bgp, ospf ]
+    bgp:
+      as: 65001
+      next_hop_self: true
+
+  r2:
+    module: [ bgp, ospf ]
+    bgp:
+      as: 65001
+
+  # ── AS65002 ──────────────────────────────────────────────────────────────────
+  # Single transit router.  Provides an indirect (2-hop) path from AS65001 to
+  # AS65003 via r1 → r3 → r4 (AS_PATH seen by r2: [65002, 65003], length 2).
+  r3:
+    bgp:
+      as: 65002
+
+  # ── AS65003 ──────────────────────────────────────────────────────────────────
+  # Single destination router.  Originates 10.4.0.0/24.
+  # r4 has two eBGP paths back to AS65001:
+  #   - direct to r2 (AS65001)
+  #   - via r3 (AS65002) then to r1 (AS65001)
+  # This sets up the AS_PATH loop-prevention scenario: when r4 receives
+  # AS65001's prefix (10.1.0.0/24) via r3, AS65001 is in the AS_PATH, so r4
+  # will not readvertise it back to r2 (AS65001).
+  r4:
+    bgp:
+      as: 65003
+
+links:
+
+  # ── Intra-AS65001 ────────────────────────────────────────────────────────────
+  # Direct link between r1 and r2.
+  # OSPF runs here so both routers can reach each other's loopback addresses,
+  # enabling the loopback-based iBGP session between them.
+  - r1:
+    r2:
+
+  # ── eBGP: AS65001 ↔ AS65002 ──────────────────────────────────────────────────
+  # r1 (AS65001) peers with r3 (AS65002) over eBGP.
+  # Routes from AS65003 learned on this link carry AS_PATH [65002, 65003].
+  # OSPF is disabled on r1's side: inter-AS links must not carry OSPF
+  # (r3 does not run OSPF and is in a different autonomous system).
+  - r1:
+      ospf:
+        enabled: false
+    r3:
+
+  # ── eBGP: AS65002 ↔ AS65003 ──────────────────────────────────────────────────
+  # Transit path through AS65002.
+  - r3:
+    r4:
+
+  # ── eBGP: AS65001 ↔ AS65003 (direct) ────────────────────────────────────────
+  # r2 (AS65001) peers directly with r4 (AS65003) over eBGP.
+  # Routes from AS65003 learned here carry AS_PATH [65003] (length 1 —
+  # preferred over the [65002, 65003] path via r3).
+  # OSPF is disabled on r2's side (inter-AS link).
+  - r2:
+      ospf:
+        enabled: false
+    r4:
+
+  # ── Stub networks ─────────────────────────────────────────────────────────────
+  # Origin prefix in AS65001 — used to demonstrate AS_PATH loop prevention.
+  # After AS65001 advertises 10.1.0.0/24 to r3 (AS65002), which passes it to
+  # r4 (AS65003), r4 will NOT readvertise it back to r2 (AS65001) because
+  # AS65001 is already in the AS_PATH.
+  - r1:
+    role: stub
+    prefix: 10.1.0.0/24
+
+  # Origin prefix in AS65003 — the primary destination used to demonstrate:
+  #   1. AS_PATH length selection (r2 direct path preferred: [65003] vs [65002, 65003])
+  #   2. Local Preference override (see README for route-map configuration)
+  - r4:
+    role: stub
+    prefix: 10.4.0.0/24
