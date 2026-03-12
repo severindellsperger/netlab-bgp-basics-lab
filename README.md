@@ -12,9 +12,9 @@ A hands-on lab that uses [NetLab](https://netlab.tools) and [Containerlab](https
 graph TB
     subgraph AS65001["AS65001 · iBGP (r1 ↔ r2) + OSPF"]
         direction TB
-        r1["r1\nnext-hop-self ✔"]
+        r1["r1<br/>next-hop-self ✔"]
         r2["r2"]
-        stub_r1[/"10.1.0.0/24\n(loop prevention demo)"/]
+        stub_r1[/"10.1.0.0/24<br/>(loop prevention demo)"/]
         r1 -. "iBGP · loopbacks via OSPF" .- r2
         r1 --- stub_r1
     end
@@ -25,7 +25,7 @@ graph TB
 
     subgraph AS65003["AS65003 · Destination"]
         r4["r4"]
-        stub_r4[/"10.4.0.0/24\n(path selection demo)"/]
+        stub_r4[/"10.4.0.0/24<br/>(path selection demo)"/]
         r4 --- stub_r4
     end
 

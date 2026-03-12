@@ -92,9 +92,11 @@ links:
   # Routes from AS65003 learned on this link carry AS_PATH [65002, 65003].
   # OSPF is disabled on r1's side: inter-AS links must not carry OSPF
   # (r3 does not run OSPF and is in a different autonomous system).
+  # Setting ospf: false at the interface level suppresses OSPF on this link so
+  # that the r1-r3 subnet is NOT advertised to r2 via OSPF, which is essential
+  # for the next-hop-self demonstration.
   - r1:
-      ospf:
-        enabled: false
+      ospf: false
     r3:
 
   # ── eBGP: AS65002 ↔ AS65003 ──────────────────────────────────────────────────
@@ -106,10 +108,10 @@ links:
   # r2 (AS65001) peers directly with r4 (AS65003) over eBGP.
   # Routes from AS65003 learned here carry AS_PATH [65003] (length 1 —
   # preferred over the [65002, 65003] path via r3).
-  # OSPF is disabled on r2's side (inter-AS link).
+  # OSPF is disabled on r2's side (inter-AS link) so that the r2-r4 subnet is
+  # not propagated within AS65001 via OSPF.
   - r2:
-      ospf:
-        enabled: false
+      ospf: false
     r4:
 
   # ── Stub networks ─────────────────────────────────────────────────────────────
